@@ -1,0 +1,13 @@
+# 🚀 Guia de Contribuição
+
+Bem-vindo ao projeto! Para manter o código organizado e a branch principal (`main`) segura, seguimos este fluxo de trabalho. Por favor, leia as instruções antes de começar.
+
+## 🛠️ Como contribuir
+
+### 1. Não dê Push direto na `main`
+A branch `main` está protegida. Nenhuma alteração deve ser enviada diretamente para ela. Todo código novo deve vir de uma branch separada.
+
+### 2. Criando uma Branch
+Sempre que for iniciar uma tarefa (funcionalidade ou correção de erro), crie uma branch com um nome descritivo:
+```bash
+git checkout -b nome-da-sua-tarefa
