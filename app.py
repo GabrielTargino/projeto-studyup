@@ -1,21 +1,16 @@
-import plotly.express as px
-from logic.analytics import buscar_dados_progresso, buscar_alertas_revisao
 import streamlit as st
 import time
-from database.connection import (
-    adicionar_disciplina, 
-    listar_disciplinas, 
-    adicionar_topico, 
-    listar_topicos_por_disciplina,
-    registrar_desempenho,
-    adicionar_flashcard,       
-    listar_flashcards_por_topico
-)
+import plotly.express as px
+from database.connection import StudyDB
 from logic.pomodoro import formatar_tempo
+from logic.analytics import buscar_dados_progresso, buscar_alertas_revisao
+
+# Inicialização da classe de banco de dados
+db = StudyDB()
 
 st.set_page_config(page_title="StudyUp", layout="wide")
 
-# CSS para forçar o cursor de mãozinha
+# CSS Customizado
 st.markdown("""
     <style>
     div[data-baseweb="select"], button, .stSelectbox { cursor: pointer !important; }
@@ -31,34 +26,20 @@ opcao = st.sidebar.selectbox("Ir para:", ["Dashboard", "Cadastrar Disciplina", "
 # --- PÁGINA: DASHBOARD ---
 if opcao == "Dashboard":
     st.header("📊 Painel de Desempenho")
-    
-    # 1. Gráfico de Desempenho
     df_progresso = buscar_dados_progresso()
     
     if df_progresso.empty:
-        st.warning("Ainda não há dados suficientes. Realize uma sessão de Pomodoro e registre seus acertos!")
+        st.warning("Ainda não há dados. Realize uma sessão de estudo!")
     else:
-        st.subheader("Percentual Médio de Acertos por Disciplina")
-        # Criando o gráfico com Plotly
-        fig = px.bar(
-            df_progresso, 
-            x='Disciplina', 
-            y='percentual',
-            color='percentual',
-            color_continuous_scale='RdYlGn', # Vermelho para baixo, Verde para alto
-            range_y=[0, 100],
-            text_auto='.1f'
-        )
+        fig = px.bar(df_progresso, x='Disciplina', y='percentual', color='percentual',
+                     color_continuous_scale='RdYlGn', range_y=[0, 100], text_auto='.1f')
         st.plotly_chart(fig, use_container_width=True)
 
     st.divider()
-
-    # 2. Alertas de Revisão
     st.subheader("🔔 Tópicos para Revisar Hoje")
     df_revisao = buscar_alertas_revisao()
-    
     if df_revisao.empty:
-        st.success("Tudo em dia! Nenhuma revisão pendente para hoje.")
+        st.success("Tudo em dia!")
     else:
         st.dataframe(df_revisao, use_container_width=True)
 
@@ -68,19 +49,19 @@ elif opcao == "Cadastrar Disciplina":
     nova_disc = st.text_input("Nome da Disciplina:")
     if st.button("Salvar Disciplina"):
         if nova_disc:
-            if adicionar_disciplina(nova_disc):
+            if db.adicionar_disciplina(nova_disc):
                 st.success("Disciplina adicionada!")
             else:
-                st.error("Erro ou já cadastrada.")
+                st.error("Erro: Já existe ou campo inválido.")
     
     st.divider()
-    for d in listar_disciplinas():
+    for d in db.listar_disciplinas():
         st.write(f"- {d[1]}")
 
 # --- PÁGINA: CADASTRAR TÓPICO ---
 elif opcao == "Cadastrar Tópico":
     st.header("📝 Cadastrar Conteúdo")
-    disciplinas = listar_disciplinas()
+    disciplinas = db.listar_disciplinas()
     if not disciplinas:
         st.warning("Cadastre uma disciplina primeiro!")
     else:
@@ -89,19 +70,19 @@ elif opcao == "Cadastrar Tópico":
         nome_topico = st.text_input("Nome do Tópico:")
         if st.button("Salvar Tópico"):
             if nome_topico:
-                adicionar_topico(dict_disc[escolha], nome_topico)
-                st.success(f"Tópico adicionado!")
+                db.adicionar_topico(dict_disc[escolha], nome_topico)
+                st.success(f"Tópico '{nome_topico}' adicionado!")
 
 # --- PÁGINA: POMODORO ---
 elif opcao == "Pomodoro":
     st.header("⏳ Timer Pomodoro")
-    disciplinas = listar_disciplinas()
+    disciplinas = db.listar_disciplinas()
     if not disciplinas:
         st.info("Cadastre disciplina e tópico antes.")
     else:
         dict_disc = {d[1]: d[0] for d in disciplinas}
         esc_disc = st.selectbox("Disciplina:", list(dict_disc.keys()))
-        topicos = listar_topicos_por_disciplina(dict_disc[esc_disc])
+        topicos = db.listar_topicos_por_disciplina(dict_disc[esc_disc])
         
         if not topicos:
             st.warning("Cadastre tópicos para esta disciplina.")
@@ -127,47 +108,44 @@ elif opcao == "Pomodoro":
                 q = col1.number_input("Questões", min_value=0, step=1)
                 a = col2.number_input("Acertos", min_value=0, step=1)
                 if st.form_submit_button("Salvar"):
-                    if q > 0:
-                        registrar_desempenho(dict_topicos[esc_topico], q, a)
-                        st.success("Salvo com sucesso!")
+                    if q > 0 and a <= q:
+                        db.registrar_desempenho(dict_topicos[esc_topico], q, a)
+                        st.success("Desempenho salvo!")
+                    elif a > q:
+                        st.error("Acertos não podem ser maiores que o total de questões.")
 
+# --- PÁGINA: FLASHCARDS ---
 elif opcao == "Flashcards":
-    st.header("🗂️ Flashcards - Revisão Rápida")
-    
-    aba_cadastrar, aba_estudar = st.tabs(["🆕 Cadastrar Cards", "🧠 Estudar"])
+    st.header("🗂️ Flashcards")
+    aba_cad, aba_est = st.tabs(["🆕 Cadastrar", "🧠 Estudar"])
 
-    with aba_cadastrar:
-        disciplinas = listar_disciplinas()
-        if not disciplinas:
-            st.warning("Cadastre uma disciplina primeiro.")
-        else:
+    with aba_cad:
+        disciplinas = db.listar_disciplinas()
+        if disciplinas:
             dict_disc = {d[1]: d[0] for d in disciplinas}
-            esc_disc = st.selectbox("Disciplina do Card:", list(dict_disc.keys()), key="fc_disc")
-            topicos = listar_topicos_por_disciplina(dict_disc[esc_disc])
-            
-            if not topicos:
-                st.warning("Cadastre um tópico para esta disciplina.")
-            else:
+            esc_disc = st.selectbox("Disciplina:", list(dict_disc.keys()), key="fc_d")
+            topicos = db.listar_topicos_por_disciplina(dict_disc[esc_disc])
+            if topicos:
                 dict_topicos = {t[2]: t[0] for t in topicos}
-                esc_topico = st.selectbox("Tópico do Card:", list(dict_topicos.keys()), key="fc_top")
-                
-                pergunta = st.text_area("Pergunta (Frente):")
-                resposta = st.text_area("Resposta (Verso):")
-                
+                esc_topico = st.selectbox("Tópico:", list(dict_topicos.keys()), key="fc_t")
+                p = st.text_area("Pergunta:")
+                r = st.text_area("Resposta:")
                 if st.button("Salvar Flashcard"):
-                    if pergunta and resposta:
-                        adicionar_flashcard(dict_topicos[esc_topico], pergunta, resposta)
-                        st.success("Card salvo com sucesso!")
+                    if p and r:
+                        db.adicionar_flashcard(dict_topicos[esc_topico], p, r)
+                        st.success("Flashcard salvo!")
 
-    with aba_estudar:
-        # Lógica simples de exibição
-        st.subheader("Selecione o que revisar:")
-        # Repetir a seleção de disciplina/tópico aqui para filtrar
-        # ... (pode usar os mesmos seletores acima com chaves/keys diferentes)
-        
-        # Exemplo de exibição do card
-        cards = listar_flashcards_por_topico(dict_topicos[esc_topico]) if topicos else []
-        
-        for card in cards:
-            with st.expander(f"❓ {card[2]}"):
-                st.write(f"💡 **Resposta:** {card[3]}")
+    with aba_est:
+        # Reutilizando seletores para filtrar estudo
+        disciplinas = db.listar_disciplinas()
+        if disciplinas:
+            dict_disc = {d[1]: d[0] for d in disciplinas}
+            esc_disc_est = st.selectbox("Filtrar Disciplina:", list(dict_disc.keys()), key="est_d")
+            topicos_est = db.listar_topicos_por_disciplina(dict_disc[esc_disc_est])
+            if topicos_est:
+                dict_topicos_est = {t[2]: t[0] for t in topicos_est}
+                esc_topico_est = st.selectbox("Filtrar Tópico:", list(dict_topicos_est.keys()), key="est_t")
+                cards = db.listar_flashcards_por_topico(dict_topicos_est[esc_topico_est])
+                for card in cards:
+                    with st.expander(f"❓ {card[2]}"):
+                        st.write(f"💡 **Resposta:** {card[3]}")
