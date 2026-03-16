@@ -1,12 +1,13 @@
 import streamlit as st
 
+
 def desenhar_tela_login():
     """
     Função que renderiza a interface de autenticação.
     Requisitos: E-mail/User, Senha oculta, Botão Login, Cadastro e Recuperação.
     """
     st.markdown("### 🔐 Acesso ao StudyUp")
-    
+
     with st.form("form_auth"):
         usuario = st.text_input("E-mail ou Username")
         senha = st.text_input("Senha", type="password")
